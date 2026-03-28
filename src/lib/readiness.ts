@@ -1,47 +1,38 @@
+import { checklistSections } from '../data/checklist';
 import { allChecklistItems } from './checklist';
-import type { ReadinessSummary, ResponseRecord, ReviewLens } from '../types';
+import type { ActionItem, ReadinessSummary, ResponseRecord, ReviewLens } from '../types';
 
 export const calculateReadiness = (responses: Record<string, ResponseRecord>, lens: ReviewLens): ReadinessSummary => {
-  const relevant = allChecklistItems().filter((i) => i.gate.includes(lens));
-  let blockers = 0;
-  let warnings = 0;
-  let opportunities = 0;
-
-  relevant.forEach((item) => {
+  const relevant = allChecklistItems().filter((item) => item.gate.includes(lens));
+  const blockers = relevant.filter((item) => {
     const r = responses[item.id];
-    const missing = !r?.status || !r?.answer.trim();
-    if (missing || r.status === 'Unknown' || r.status === 'At Risk') blockers += 1;
-    if (r?.status === 'Assumed') warnings += 1;
-    if (r?.status === 'Opportunity') opportunities += 1;
-  });
-
-  const covered = Math.max(0, relevant.length - blockers);
-  const percentCoverage = relevant.length ? Math.round((covered / relevant.length) * 100) : 0;
-  const confidence = blockers > 10 ? 'low' : blockers > 3 ? 'medium' : 'high';
-
-  return {
-    total: relevant.length,
-    blockers,
-    warnings,
-    opportunities,
-    percentCoverage,
-    confidence,
-    summary: `${confidence.toUpperCase()} confidence with ${blockers} blockers and ${warnings} warnings.`
-  };
+    return !r?.status || !r?.answer.trim() || r.status === 'Unknown' || r.status === 'At Risk';
+  }).length;
+  const opportunities = relevant.filter((item) => responses[item.id]?.status === 'Opportunity').length;
+  const percentCoverage = relevant.length ? Math.round(((relevant.length - blockers) / relevant.length) * 100) : 0;
+  const confidenceLabel = percentCoverage >= 75 ? 'Strong' : percentCoverage >= 45 ? 'Moderate' : 'Low';
+  return { total: relevant.length, blockers, opportunities, percentCoverage, confidenceLabel };
 };
 
-export const riskRegister = (responses: Record<string, ResponseRecord>) =>
+export const deriveRiskRegister = (responses: Record<string, ResponseRecord>) =>
   allChecklistItems()
     .filter((item) => {
       const r = responses[item.id];
-      return r?.status === 'At Risk' || r?.status === 'Unknown' ||
-      (item.weight === 'high' && (r?.status === 'Assumed' || !r?.status));
+      return r?.status === 'At Risk' || (item.important && r?.status === 'Unknown');
     })
-    .map((item) => ({ item, response: responses[item.id] }));
+    .map((item) => {
+      const section = checklistSections.find((s) => s.items.some((i) => i.id === item.id));
+      const response = responses[item.id];
+      return {
+        itemId: item.id,
+        section: section?.title ?? 'Unknown section',
+        prompt: item.text,
+        status: response.status,
+        answer: response.answer,
+        consequence: response.consequence ?? '',
+        nextStep: response.followUpNote ?? ''
+      };
+    });
 
-export const actionQueue = (responses: Record<string, ResponseRecord>) =>
-  allChecklistItems().flatMap((item) => {
-    const r = responses[item.id];
-    if (!r?.owner || !r?.dueDate || ['Confirmed', 'Not Applicable'].includes(r.status)) return [];
-    return [{ itemId: item.id, question: item.text, owner: r.owner, dueDate: r.dueDate, status: r.status }];
-  });
+export const topThreeActions = (actions: ActionItem[]) =>
+  [...actions].sort((a, b) => (a.dueDate || '9999-12-31').localeCompare(b.dueDate || '9999-12-31')).slice(0, 3);
