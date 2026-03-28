@@ -1,62 +1,57 @@
 import { productCatalog } from '../data/productCatalog';
-import type { ProductAdoption, ProductCatalogItem, ResponseRecord } from '../types';
+import type { ProductAdoption, ResponseRecord } from '../types';
 
-type RuleResult = { suggestedProductIds: string[]; explanation: string; evidenceItemIds: string[] };
+const product = (id: string) => productCatalog.find((p) => p.id === id);
 
-const containsAny = (text: string, words: string[]) => words.some((word) => text.includes(word));
+const detectSignals = (responses: Record<string, ResponseRecord>) =>
+  Object.values(responses)
+    .map((r) => `${r.answer} ${r.followUpNote ?? ''} ${r.consequence ?? ''}`.toLowerCase())
+    .join(' ');
 
 export const deriveOpportunities = (
   responses: Record<string, ResponseRecord>,
-  adoption: Record<string, ProductAdoption>
-): RuleResult[] => {
-  const textBlob = Object.entries(responses)
-    .map(([id, r]) => `${id} ${r.answer} ${r.risk} ${r.status}`.toLowerCase())
-    .join(' ');
+  adoption: Record<string, ProductAdoption>,
+  platforms: { hasDenticon: boolean; hasCloud9: boolean; hasApteryx: boolean }
+) => {
+  const text = detectSignals(responses);
 
-  const rules: Array<{ trigger: string[]; products: string[]; explanation: string }> = [
-    { trigger: ['patient communication', 'forms', 'scheduling'], products: ['denticon_patient_comm', 'cloud9_connect', 'cloud9_signature', 'denticon_mytooth', 'cloud9_mytooth'], explanation: 'Patient communication friction detected.' },
-    { trigger: ['bi', 'report', 'dashboard', 'data warehouse', 'data access'], products: ['denticon_dpa_data_share', 'cloud9_cbs_data_share', 'denticon_xvweb_analytics', 'apteryx_xvweb_analytics', 'denticon_dpa_morning_huddle', 'denticon_dpa_dashboard_bundle'], explanation: 'BI/reporting or data access gap detected.' },
-    { trigger: ['insurance', 'era', '835', 'eligibility'], products: ['denticon_835_era', 'denticon_autoeligibility'], explanation: 'Insurance workflow friction detected.' },
-    { trigger: ['ai', 'automation'], products: ['denticon_ai_agents', 'cloud9_ai_agents', 'denticon_ai_voice_perio'], explanation: 'AI interest detected.' },
-    { trigger: ['3d', 'imaging'], products: ['denticon_xvweb_3d', 'apteryx_xvweb_3d'], explanation: 'Imaging/3D gap detected.' },
-    { trigger: ['sso', 'identity'], products: ['denticon_sso'], explanation: 'Identity/SSO need detected.' },
-    { trigger: ['ortho', 'orthodontic'], products: ['denticon_ortho_suite'], explanation: 'Orthodontic workflow need detected.' }
+  const rules = [
+    { id: 'patient', words: ['patient communication', 'forms', 'scheduling'], products: ['denticon_patient_communication', 'cloud9_connect', 'cloud9_signature', 'denticon_mytooth', 'cloud9_mytooth'], explanation: 'Patient communication workflow gap detected.' },
+    { id: 'bi', words: ['dashboard', 'reporting', 'bi', 'data access', 'warehouse'], products: ['denticon_dpa_data_share', 'cloud9_cbs_data_share', 'denticon_xvweb_analytics', 'apteryx_xvweb_analytics', 'denticon_dpa_morning_huddle', 'denticon_dpa_dashboard_bundle'], explanation: 'BI/reporting maturity gap detected.' },
+    { id: 'insurance', words: ['insurance', 'era', '835', 'eligibility'], products: ['denticon_835_era', 'denticon_autoeligibility'], explanation: 'Insurance processing friction detected.' },
+    { id: 'ai', words: ['ai', 'automation'], products: ['denticon_ai_agents', 'cloud9_ai_agents', 'denticon_ai_voice_perio'], explanation: 'AI interest signal detected.' },
+    { id: 'imaging', words: ['3d', 'imaging'], products: ['denticon_xvweb_3d', 'apteryx_xvweb_3d'], explanation: 'Imaging/3D gap detected.' },
+    { id: 'sso', words: ['sso', 'identity'], products: ['denticon_sso'], explanation: 'Identity/SSO requirement detected.' },
+    { id: 'ortho', words: ['ortho', 'orthodontic'], products: ['denticon_ortho_suite'], explanation: 'Orthodontic workflow opportunity detected.' }
   ];
 
+  const platformBoost = (platform: string) =>
+    (platform === 'Denticon' && platforms.hasDenticon) || (platform === 'Cloud 9' && platforms.hasCloud9) || (platform === 'Apteryx' && platforms.hasApteryx);
+
   return rules
-    .filter((rule) => containsAny(textBlob, rule.trigger))
-    .map((rule) => {
-      const suggestedProductIds = rule.products.filter((p) => adoption[p]?.status !== 'adopted');
-      return {
-        suggestedProductIds,
-        explanation: rule.explanation,
-        evidenceItemIds: Object.keys(responses).filter((id) => textBlob.includes(id))
-      };
-    })
-    .filter((r) => r.suggestedProductIds.length > 0);
+    .filter((r) => r.words.some((w) => text.includes(w)))
+    .flatMap((rule) =>
+      rule.products
+        .filter((id) => adoption[id]?.status !== 'adopted')
+        .map((id) => {
+          const p = product(id);
+          if (!p) return null;
+          return {
+            title: p.name,
+            platform: p.platform,
+            category: p.category,
+            whyItFits: rule.explanation,
+            confidence: platformBoost(p.platform) ? 'high' : 'medium',
+            nextStep: '',
+            linkedEvidence: rule.id
+          };
+        })
+        .filter(Boolean)
+    );
 };
 
-export const opportunityRegister = (
+export const topWhitespace = (
   responses: Record<string, ResponseRecord>,
-  adoption: Record<string, ProductAdoption>
-) => {
-  const direct = Object.entries(responses)
-    .filter(([, r]) => r.status === 'Opportunity')
-    .map(([id, r]) => ({ title: `Checklist opportunity ${id}`, platform: 'N/A', category: 'checklist', whyItFits: r.answer, confidence: 'medium', owner: r.owner, nextStep: r.risk, linkedEvidenceItemIds: [id] }));
-
-  const derived = deriveOpportunities(responses, adoption).flatMap((o) => o.suggestedProductIds.map((id) => {
-    const product = productCatalog.find((p) => p.id === id) as ProductCatalogItem;
-    return {
-      title: product.name,
-      platform: product.platform,
-      category: product.category,
-      whyItFits: o.explanation,
-      confidence: adoption[id]?.opportunityValue || 'medium',
-      owner: adoption[id]?.owner || '',
-      nextStep: adoption[id]?.notes || 'Validate discovery signal and define commercial motion.',
-      linkedEvidenceItemIds: o.evidenceItemIds
-    };
-  }));
-
-  return [...direct, ...derived];
-};
+  adoption: Record<string, ProductAdoption>,
+  platforms: { hasDenticon: boolean; hasCloud9: boolean; hasApteryx: boolean }
+) => deriveOpportunities(responses, adoption, platforms).slice(0, 5);
