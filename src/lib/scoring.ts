@@ -19,7 +19,8 @@ export const computeScores = (
   const growthPotential = clamp(20 + whitespaceCount * 12 + (100 - retentionRisk) * 0.2);
   const operationalComplexity = clamp(riskCount * 10 + (100 - readiness.percentCoverage) * 0.4);
 
-  const overallPosture = retentionRisk > 70 ? 'Red' : retentionRisk > 45 ? 'Yellow' : growthPotential > 75 ? 'Blue' : 'Green';
+  const overallPosture: Snapshot['overallPosture'] =
+    retentionRisk > 70 ? 'Red' : retentionRisk > 45 ? 'Yellow' : growthPotential > 75 ? 'Blue' : 'Green';
 
   return { relationshipHealth, retentionRisk, growthPotential, operationalComplexity, overallPosture };
 };

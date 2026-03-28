@@ -201,8 +201,8 @@ function App() {
           </div>
         )}
 
-        {tab === 'Product Adoption' && <ProductAdoptionTable adoption={current.productAdoption} hasDenticon={current.hasDenticon} hasCloud9={current.hasCloud9} hasApteryx={current.hasApteryx} onChange={(id, patch) => updateCurrent((a) => ({ ...a, productAdoption: { ...a.productAdoption, [id]: { ...a.productAdoption[id], ...patch } } }))} />}
-        {tab === 'Risk Register' && <RiskRegister responses={current.responses} />}
+        {tab === 'Product Adoption' && <ProductAdoptionTable adoption={current.productAdoption} hasDenticon={current.hasDenticon} hasCloud9={current.hasCloud9} hasApteryx={current.hasApteryx} onPlatformChange={(patch) => updateCurrent((a) => ({ ...a, ...patch, updatedAt: new Date().toISOString() }))} onChange={(id, patch) => updateCurrent((a) => ({ ...a, productAdoption: { ...a.productAdoption, [id]: { ...a.productAdoption[id], ...patch } }, updatedAt: new Date().toISOString() }))} />}
+        {tab === 'Risk Register' && <RiskRegister responses={current.responses} actions={current.actions} />}
         {tab === 'Opportunity Register' && <OpportunityRegister responses={current.responses} adoption={current.productAdoption} platforms={platforms} />}
         {tab === 'Action Register' && <ActionQueue actions={current.actions} onAdd={(seed) => addAction(seed)} onChange={(id, patch) => updateCurrent((a) => ({ ...a, actions: a.actions.map((act) => act.id === id ? { ...act, ...patch } : act) }))} onDelete={(id) => updateCurrent((a) => ({ ...a, actions: a.actions.filter((act) => act.id !== id) }))} />}
         {tab === 'Snapshots' && <SnapshotPanel snapshots={current.snapshots} />}

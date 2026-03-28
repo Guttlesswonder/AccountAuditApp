@@ -2,6 +2,7 @@ import { productCatalog } from '../data/productCatalog';
 import type { ProductAdoption, ResponseRecord } from '../types';
 
 const product = (id: string) => productCatalog.find((p) => p.id === id);
+type OpportunityConfidence = 'high' | 'medium';
 
 const detectSignals = (responses: Record<string, ResponseRecord>) =>
   Object.values(responses)
@@ -12,7 +13,7 @@ export const deriveOpportunities = (
   responses: Record<string, ResponseRecord>,
   adoption: Record<string, ProductAdoption>,
   platforms: { hasDenticon: boolean; hasCloud9: boolean; hasApteryx: boolean }
-) => {
+): Array<{ title: string; platform: string; category: string; whyItFits: string; confidence: 'high' | 'medium'; nextStep: string; linkedEvidence: string }> => {
   const text = detectSignals(responses);
 
   const rules = [
@@ -41,12 +42,12 @@ export const deriveOpportunities = (
             platform: p.platform,
             category: p.category,
             whyItFits: rule.explanation,
-            confidence: platformBoost(p.platform) ? 'high' : 'medium',
+            confidence: (platformBoost(p.platform) ? 'high' : 'medium') as OpportunityConfidence,
             nextStep: '',
             linkedEvidence: rule.id
           };
         })
-        .filter(Boolean)
+        .filter((v): v is NonNullable<typeof v> => v !== null)
     );
 };
 
