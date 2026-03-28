@@ -1,64 +1,71 @@
 import { describe, expect, it } from 'vitest';
-import { initialResponses, mergeResponses, statusNeedsFollowUp } from './checklist';
+import { initialResponses, mergeResponses } from './checklist';
 import { LocalStorageProvider, STORAGE_KEY } from './storage/localStorageProvider';
-import { createAccount, duplicateAccount, normalizeAppState } from './state';
-import { calculateReadiness, deriveRiskRegister } from './readiness';
+import { createAccount, defaultState, duplicateAccount, normalizeAppState } from './state';
+import { calculateReadiness, riskRegister } from './readiness';
 import { deriveOpportunities } from './opportunityRules';
-import { computeScores, labelMetric } from './scoring';
+import { computeScores } from './scoring';
+import { buildSectionRows } from './exportExcel';
 import { importAppJson } from './exportJson';
 
-describe('checklist response model', () => {
-  it('builds initial responses and merges partial response', () => {
+describe('initial response generation', () => {
+  it('creates responses for checklist', () => {
     const responses = initialResponses();
-    expect(Object.keys(responses).length).toBe(24);
-    const merged = mergeResponses(responses, { 'commercial-1': { status: 'Confirmed', answer: 'renews q3' } });
-    expect(merged['commercial-1'].status).toBe('Confirmed');
+    expect(Object.keys(responses).length).toBeGreaterThan(40);
   });
 
-  it('shows follow up only for flagged states', () => {
-    expect(statusNeedsFollowUp('Confirmed')).toBe(false);
-    expect(statusNeedsFollowUp('At Risk')).toBe(true);
+  it('merges responses', () => {
+    const merged = mergeResponses(initialResponses(), { 'commercial-1': { status: 'Confirmed', answer: 'yes', owner: '', dueDate: '', risk: '' } });
+    expect(merged['commercial-1'].status).toBe('Confirmed');
   });
 });
 
-describe('storage + account lifecycle', () => {
-  it('loads and saves state using provider', () => {
-    const map = new Map<string, string>();
-    // @ts-expect-error local shim
-    global.window = { localStorage: { getItem: (k: string) => map.get(k) ?? null, setItem: (k: string, v: string) => map.set(k, v) } };
+describe('storage load/save', () => {
+  it('saves and loads', () => {
+    const mock = new Map<string, string>();
+    // @ts-expect-error test shim
+    global.window = { localStorage: { getItem: (k: string) => mock.get(k) ?? null, setItem: (k: string, v: string) => mock.set(k, v) } };
     const provider = new LocalStorageProvider();
-    const state = normalizeAppState();
+    const state = defaultState();
     provider.saveState(state);
-    expect(map.has(STORAGE_KEY)).toBe(true);
+    expect(mock.has(STORAGE_KEY)).toBe(true);
     expect(provider.loadState().accounts.length).toBe(1);
   });
+});
 
-  it('creates and duplicates account', () => {
+describe('account create/duplicate/delete-ish', () => {
+  it('creates and duplicates accounts', () => {
     const a = createAccount();
     const b = duplicateAccount(a);
     expect(a.id).not.toBe(b.id);
+    const normalized = normalizeAppState({ accounts: [a, b], currentAccountId: b.id });
+    expect(normalized.accounts).toHaveLength(2);
   });
 });
 
-describe('derived logic', () => {
-  it('builds readiness, risk, opportunity, and score outputs', () => {
+describe('readiness/risk/opportunity/scoring', () => {
+  it('derives summaries and scores', () => {
     const account = createAccount();
-    account.responses['health-2'] = { status: 'At Risk', answer: 'retention pressure', consequence: 'churn risk' };
-    account.responses['ops-3'] = { status: 'Unknown', answer: 'patient communication unclear', followUpNote: 'confirm workflow' };
-
+    account.responses['support-1'] = { status: 'At Risk', answer: 'major escalation', owner: 'AM', dueDate: '2026-03-01', risk: 'churn' };
+    account.responses['process-10'] = { status: 'Unknown', answer: 'unknown patient communication', owner: '', dueDate: '', risk: '' };
     const readiness = calculateReadiness(account.responses, account.reviewLens);
-    const risks = deriveRiskRegister(account.responses);
-    const opportunities = deriveOpportunities(account.responses, account.productAdoption, { hasDenticon: true, hasCloud9: false, hasApteryx: false });
-    const scores = computeScores(account.responses, account.productAdoption, account.reviewLens, { hasDenticon: true, hasCloud9: false, hasApteryx: false });
+    expect(readiness.blockers).toBeGreaterThan(0);
+    expect(riskRegister(account.responses).length).toBeGreaterThan(0);
+    expect(deriveOpportunities(account.responses, account.productAdoption).length).toBeGreaterThan(0);
+    expect(computeScores(account.responses, account.productAdoption, account.reviewLens).overallPosture).toBeTruthy();
+  });
+});
 
-    expect(readiness.total).toBeGreaterThan(0);
-    expect(risks.length).toBeGreaterThan(0);
-    expect(opportunities.length).toBeGreaterThan(0);
-    expect(labelMetric('relationship', scores.relationshipHealth)).toBeTruthy();
+describe('excel rows and json normalization', () => {
+  it('builds section rows', () => {
+    const account = createAccount();
+    const rows = buildSectionRows(account, 'commercial_context');
+    expect(rows.length).toBeGreaterThan(0);
   });
 
-  it('normalizes imported app json', () => {
-    const imported = importAppJson(JSON.stringify({ accounts: [{ accountName: 'A' }] }));
-    expect(imported.accounts[0].responses['commercial-1']).toBeDefined();
+  it('normalizes imported state', () => {
+    const imported = importAppJson(JSON.stringify({ accounts: [{ accountName: 'A' }], currentAccountId: 'x' }));
+    expect(imported.accounts[0].responses).toBeDefined();
+    expect(imported.currentAccountId).toBe(imported.accounts[0].id);
   });
 });

@@ -1,74 +1,49 @@
 import * as XLSX from 'xlsx';
 import { checklistSections } from '../data/checklist';
 import { productCatalog } from '../data/productCatalog';
-import { deriveRiskRegister, topThreeActions } from './readiness';
-import { topWhitespace } from './opportunityRules';
-import { calculateReadiness } from './readiness';
+import { actionQueue, calculateReadiness, riskRegister } from './readiness';
+import { opportunityRegister } from './opportunityRules';
 import { computeScores } from './scoring';
 import type { AccountRecord } from '../types';
 
-const sectionRows = (account: AccountRecord, sectionId: string) => {
+export const buildSectionRows = (account: AccountRecord, sectionId: string) => {
   const section = checklistSections.find((s) => s.id === sectionId);
   if (!section) return [];
   return section.items.map((item) => {
-    const r = account.responses[item.id];
+    const response = account.responses[item.id];
     return {
-      prompt: item.text,
-      status: r.status,
-      answer: r.answer,
-      followUpNote: r.followUpNote ?? '',
-      owner: r.owner ?? '',
-      dueDate: r.dueDate ?? '',
-      consequence: r.consequence ?? ''
+      id: item.id,
+      question: item.text,
+      category: item.category,
+      kind: item.kind,
+      gates: item.gate.join(', '),
+      status: response.status,
+      answer: response.answer,
+      owner: response.owner,
+      dueDate: response.dueDate,
+      risk: response.risk
     };
   });
 };
 
 export const exportAccountToExcel = (account: AccountRecord) => {
   const wb = XLSX.utils.book_new();
-  const platforms = { hasDenticon: account.hasDenticon, hasCloud9: account.hasCloud9, hasApteryx: account.hasApteryx };
-  const scores = computeScores(account.responses, account.productAdoption, account.reviewLens, platforms);
+  const scores = computeScores(account.responses, account.productAdoption, account.reviewLens);
   const readiness = calculateReadiness(account.responses, account.reviewLens);
-  const risks = deriveRiskRegister(account.responses);
-  const opportunities = topWhitespace(account.responses, account.productAdoption, platforms);
+  const risks = riskRegister(account.responses);
+  const opportunities = opportunityRegister(account.responses, account.productAdoption);
 
-  XLSX.utils.book_append_sheet(
-    wb,
-    XLSX.utils.json_to_sheet([
-      {
-        accountName: account.accountName,
-        reviewLens: account.reviewLens,
-        overallPosture: scores.overallPosture,
-        relationshipHealth: scores.relationshipHealth,
-        retentionRisk: scores.retentionRisk,
-        growthPotential: scores.growthPotential,
-        operationalComplexity: scores.operationalComplexity,
-        confidence: readiness.confidenceLabel,
-        termsSummary: account.termsSummary,
-        termsFileName: account.termsAttachment?.fileName ?? '',
-        termsUploadedAt: account.termsAttachment?.uploadedAt ?? '',
-        termsAvailableLocally: account.termsAttachment ? 'yes' : 'no'
-      }
-    ]),
-    'Summary'
-  );
+  const summaryRows = [{ ...scores, accountName: account.accountName, crmRef: account.crmRef, accountManager: account.accountManager, reviewLens: account.reviewLens, blockerCount: readiness.blockers, warningCount: readiness.warnings, opportunityCount: readiness.opportunities, topRisks: risks.slice(0, 3).map((r) => r.item.text).join(' | '), topOpportunities: opportunities.slice(0, 3).map((o) => o.title).join(' | ') }];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Summary');
 
-  const tabs: Array<[string, string]> = [
-    ['commercial_terms', 'Commercial & Terms'],
-    ['people_ownership', 'People & Ownership'],
-    ['growth_practice', 'Growth & Practice Model'],
-    ['operations_centralization', 'Operations & Centralization'],
-    ['technology_data_vendors', 'Technology, Data & Vendors'],
-    ['health_risk_growth', 'Health, Risk & Opportunities']
-  ];
+  const map: Record<string, string> = { commercial_context: 'Commercial', stakeholders: 'Stakeholders', priorities: 'Priorities & Governance', process_adoption: 'Process & Adoption', technology_data: 'Technology & Data', support_friction: 'Support & Friction', sentiment_action: 'Sentiment & Action Plan' };
+  Object.entries(map).forEach(([sectionId, title]) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildSectionRows(account, sectionId)), title));
 
-  tabs.forEach(([sectionId, title]) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sectionRows(account, sectionId)), title));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(productCatalog.map((p) => ({ platform: p.platform, product: p.name, category: p.category, ...account.productAdoption[p.id] }))), 'Product Adoption');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(account.actions), 'Action Register');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(account.snapshots), 'Snapshots');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(risks), 'Risk Register');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(risks.map((r) => ({ section: checklistSections.find((s) => s.items.some((i) => i.id === r.item.id))?.title, question: r.item.text, status: r.response.status, answer: r.response.answer, owner: r.response.owner, dueDate: r.response.dueDate, risk: r.response.risk, category: r.item.category, gates: r.item.gate.join(', ') }))), 'Risk Register');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(opportunities), 'Opportunity Register');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(topThreeActions(account.actions)), 'Next 3 Actions');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(actionQueue(account.responses)), 'Action Queue');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(account.snapshots), 'Snapshots');
 
-  XLSX.writeFile(wb, `${account.accountName || 'account'}-v1-1.xlsx`);
+  XLSX.writeFile(wb, `${account.accountName || 'account'}-audit.xlsx`);
 };

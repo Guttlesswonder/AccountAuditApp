@@ -1,23 +1,15 @@
-# Strategic Account Audit (v1.1)
+# Strategic Account Audit
 
-Strategic Account Audit is a frontend-only React + TypeScript internal web app for account managers and leadership account reviews. It is designed to be **executive-friendly in 2–5 minutes** while still supporting structured account audit workflows.
+Strategic Account Audit is a frontend-only React + TypeScript internal web app for account managers. It helps teams evaluate customer health, stakeholder coverage, process maturity, technology complexity, whitespace opportunity, sentiment, retention risk, and next actions.
 
-## What changed in v1.1
+## MVP scope
 
-- Shortened checklist to 6 sections / 24 prompts.
-- Default landing page is an executive summary.
-- Most prompts use status + short answer only.
-- Follow-up fields appear only when status is Unknown, At Risk, or Opportunity.
-- Added dedicated Action Register (separate from checklist).
-- Added Terms Summary + optional local PDF attachment (IndexedDB, not localStorage).
-- Added account-level platform toggles (Denticon / Cloud 9 / Apteryx) to prioritize product views.
-- Product matrix no longer includes owner fields.
-
-## Local-first architecture
-
-- Main app state persists in browser `localStorage` key: `strategic-account-audit-v1`.
-- Terms PDFs persist in browser IndexedDB database: `strategic-account-audit-attachments-v1`.
-- No backend/auth/API dependencies in v1.1.
+- Static SPA built with Vite + React + TypeScript + Tailwind CSS.
+- Local persistence in browser `localStorage` only (per browser / per origin).
+- JSON export/import (single account and full app state).
+- Excel export via `xlsx`.
+- Snapshots for periodic review trendlines.
+- No backend, no auth, no CRM/SharePoint API integration in v1.
 
 ## Setup
 
@@ -41,16 +33,21 @@ npm run test
 ## Vercel deployment notes
 
 1. Push repository to GitHub.
-2. Import project in Vercel.
-3. Keep Vite defaults:
+2. In Vercel, import the GitHub repository.
+3. Keep default frontend settings:
+   - Framework preset: **Vite**
    - Build command: `npm run build`
    - Output directory: `dist`
-4. Enable preview + production deployments from Git.
+4. Enable production + preview deployments from main/PR branches.
 
-## Important v1.1 storage note
+## Data storage notice
 
-Terms PDF attachments are **stored locally in this browser only** and are not shared across users/devices.
+This v1 stores all data only in browser localStorage using key `strategic-account-audit-v1`. It is intended for single-user/internal prototyping and is **not** a shared system of record.
+
+## Future migration path
+
+Domain logic is structured so storage can be swapped with a SharePoint/Microsoft Lists/Dataverse/custom API provider later.
 
 ## Sample screenshots
 
-_Add screenshots here after first deployed build._
+_Add screenshots here after first deployment._

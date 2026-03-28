@@ -2,9 +2,9 @@ import { productCatalog } from '../data/productCatalog';
 import type { AccountRecord, AppState, ProductAdoption } from '../types';
 import { initialResponses, mergeResponses } from './checklist';
 
-const emptyAdoption = (): Record<string, ProductAdoption> =>
-  productCatalog.reduce((acc, product) => {
-    acc[product.id] = { productId: product.id, status: 'unknown', notes: '', opportunityValue: '' };
+const emptyAdoptionRecord = (): Record<string, ProductAdoption> =>
+  productCatalog.reduce((acc, p) => {
+    acc[p.id] = { productId: p.id, status: 'unknown', notes: '', owner: '', opportunityValue: '' };
     return acc;
   }, {} as Record<string, ProductAdoption>);
 
@@ -12,28 +12,23 @@ export const createAccount = (): AccountRecord => {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
-    accountName: 'New Strategic Account',
+    accountName: 'New Account Audit',
     crmRef: '',
     accountManager: '',
     segment: '',
-    reviewLens: 'executive_review',
-    hasDenticon: true,
-    hasCloud9: false,
-    hasApteryx: false,
-    termsSummary: '',
+    reviewLens: 'relationship',
     createdAt: now,
     updatedAt: now,
     responses: initialResponses(),
-    productAdoption: emptyAdoption(),
-    actions: [],
+    productAdoption: emptyAdoptionRecord(),
     snapshots: []
   };
 };
 
-export const duplicateAccount = (record: AccountRecord): AccountRecord => ({
-  ...record,
+export const duplicateAccount = (account: AccountRecord): AccountRecord => ({
+  ...account,
   id: crypto.randomUUID(),
-  accountName: `${record.accountName} (Copy)`,
+  accountName: `${account.accountName} (Copy)`,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   snapshots: []
@@ -45,19 +40,17 @@ export const normalizeAccount = (input: Partial<AccountRecord>): AccountRecord =
     ...base,
     ...input,
     responses: mergeResponses(base.responses, input.responses ?? {}),
-    productAdoption: { ...base.productAdoption, ...input.productAdoption },
-    actions: input.actions ?? []
+    productAdoption: { ...base.productAdoption, ...input.productAdoption }
   };
 };
 
 export const normalizeAppState = (input?: Partial<AppState>): AppState => {
   const accounts = (input?.accounts ?? []).map(normalizeAccount);
   if (accounts.length === 0) {
-    const account = createAccount();
-    return { accounts: [account], currentAccountId: account.id };
+    const created = createAccount();
+    return { accounts: [created], currentAccountId: created.id };
   }
-  const currentAccountId = input?.currentAccountId && accounts.some((a) => a.id === input.currentAccountId) ? input.currentAccountId : accounts[0].id;
-  return { accounts, currentAccountId };
+  return { accounts, currentAccountId: input?.currentAccountId && accounts.some((a) => a.id === input.currentAccountId) ? input.currentAccountId : accounts[0].id };
 };
 
 export const defaultState = (): AppState => normalizeAppState();

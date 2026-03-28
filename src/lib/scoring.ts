@@ -1,38 +1,42 @@
-import { calculateReadiness, deriveRiskRegister } from './readiness';
-import { topWhitespace } from './opportunityRules';
+import { scoringConfig } from '../data/scoringConfig';
+import { calculateReadiness, riskRegister } from './readiness';
+import { opportunityRegister } from './opportunityRules';
 import type { ProductAdoption, ResponseRecord, ReviewLens, Snapshot } from '../types';
 
-const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+export const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
 export const computeScores = (
   responses: Record<string, ResponseRecord>,
   adoption: Record<string, ProductAdoption>,
-  lens: ReviewLens,
-  platforms: { hasDenticon: boolean; hasCloud9: boolean; hasApteryx: boolean }
+  lens: ReviewLens
 ) => {
   const readiness = calculateReadiness(responses, lens);
-  const riskCount = deriveRiskRegister(responses).length;
-  const whitespaceCount = topWhitespace(responses, adoption, platforms).length;
+  const risks = riskRegister(responses).length;
+  const opportunities = opportunityRegister(responses, adoption).length;
 
-  const relationshipHealth = clamp(100 - readiness.blockers * 12);
-  const retentionRisk = clamp(riskCount * 18);
-  const growthPotential = clamp(20 + whitespaceCount * 12 + (100 - retentionRisk) * 0.2);
-  const operationalComplexity = clamp(riskCount * 10 + (100 - readiness.percentCoverage) * 0.4);
+  const relationshipHealth = clamp(100 - readiness.blockers * scoringConfig.relationshipPenalty);
+  const retentionRisk = clamp(risks * scoringConfig.retentionRiskStep);
+  const growthPotential = clamp(readiness.opportunities * 8 + opportunities * scoringConfig.growthOpportunityStep);
+  const operationalComplexity = clamp((readiness.blockers + readiness.warnings) * scoringConfig.complexityStep);
 
-  const overallPosture = retentionRisk > 70 ? 'Red' : retentionRisk > 45 ? 'Yellow' : growthPotential > 75 ? 'Blue' : 'Green';
+  const overallPosture =
+    retentionRisk >= 75 || readiness.percentCoverage < 40
+      ? 'Red'
+      : retentionRisk >= 45
+      ? 'Yellow'
+      : growthPotential >= 60
+      ? 'Blue'
+      : 'Green';
 
   return { relationshipHealth, retentionRisk, growthPotential, operationalComplexity, overallPosture };
-};
-
-export const labelMetric = (metric: 'relationship' | 'risk' | 'growth' | 'complexity', value: number) => {
-  if (metric === 'relationship') return value >= 75 ? 'Strong' : value >= 45 ? 'Moderate' : 'Low';
-  return value >= 70 ? 'High' : value >= 40 ? 'Moderate' : 'Low';
 };
 
 export const createSnapshot = (
   responses: Record<string, ResponseRecord>,
   adoption: Record<string, ProductAdoption>,
   lens: ReviewLens,
-  platforms: { hasDenticon: boolean; hasCloud9: boolean; hasApteryx: boolean },
   note: string
-): Snapshot => ({ id: crypto.randomUUID(), createdAt: new Date().toISOString(), note, ...computeScores(responses, adoption, lens, platforms) });
+): Snapshot => {
+  const score = computeScores(responses, adoption, lens);
+  return { id: crypto.randomUUID(), createdAt: new Date().toISOString(), note, ...score };
+};
